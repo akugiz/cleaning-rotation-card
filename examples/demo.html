@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Cleaning Rotation Card demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --primary-text-color: #f5f3ff;
+        --secondary-text-color: #aaa6bd;
+        --card-background-color: #171624;
+        --ha-card-background: #171624;
+        --divider-color: #343246;
+        --primary-color: #b58cff;
+      }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: start center; padding: 28px; background: #0c0b12; font-family: Arial, sans-serif; }
+      cleaning-rotation-card { display: block; width: min(620px, 100%); }
+      ha-card { display: block; border-radius: 20px; box-shadow: 0 16px 50px #0008; }
+      ha-icon { display: inline-grid; place-items: center; width: 24px; height: 24px; }
+      ha-icon::after { content: "●"; font-size: 10px; }
+    </style>
+  </head>
+  <body>
+    <cleaning-rotation-card id="demo"></cleaning-rotation-card>
+    <script type="module" src="../cleaning-rotation-card.js"></script>
+    <script type="module">
+      await customElements.whenDefined("cleaning-rotation-card");
+      document.querySelector("#demo").setConfig({
+        title: "House cleaning",
+        start_date: new Date().toISOString().slice(0, 10),
+        people: [
+          { id: "person-one", name: "Person One", icon: "mdi:broom", color: "#ffeb3b", duration: 7 },
+          { id: "person-two", name: "Person Two", icon: "mdi:vacuum", color: "#a9a9a9", duration: 7 },
+          { id: "person-three", name: "Person Three", icon: "mdi:car", color: "#f44336", duration: 7 },
+          { id: "person-four", name: "Person Four", icon: "mdi:controller-classic", color: "#2196f3", duration: 7 },
+          { id: "person-five", name: "Person Five", icon: "mdi:cake-variant", color: "#009688", duration: 7 },
+        ],
+      });
+    </script>
+  </body>
+</html>
