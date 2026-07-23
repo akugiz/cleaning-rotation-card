@@ -1,0 +1,10 @@
+{
+  "name": "cleaning-rotation-card",
+  "version": "1.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check cleaning-rotation-card.js",
+    "test": "node tests/card.test.mjs"
+  }
+}
