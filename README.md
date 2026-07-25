@@ -4,6 +4,9 @@ A standalone Home Assistant dashboard card for a repeating cleaning rotation.
 The timetable is stored directly in the card configuration, so it does not use
 Home Assistant Calendar, helpers, scripts, or automations.
 
+![Cleaning Rotation Card](photo.png)
+![Cleaning Rotation Card](photo2.png)
+
 ## Features
 
 - automatic repeating rotation with no end date;
