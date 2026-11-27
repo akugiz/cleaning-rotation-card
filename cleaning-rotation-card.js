@@ -1,11 +1,11 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.4.1
+ * Version 1.4.2
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.4.1";
+const CARD_VERSION = "1.4.2";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
@@ -22,6 +22,7 @@ const DEFAULTS = Object.freeze({
   bedroom_first: "",
   show_cycle_summary: true,
   show_duration: true,
+  show_dates: false,
 });
 
 const SAMPLE_PEOPLE = Object.freeze([
@@ -287,7 +288,11 @@ class CleaningRotationCard extends HTMLElement {
       return;
     }
 
-    const schedule = this._schedule();
+    const today = dayNumberFromDate(new Date());
+    const schedule = this._schedule(today);
+    const dateFormat = this._config.show_dates
+      ? new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+      : null;
     const activeLabel = this._config.show_active_label ? String(this._config.active_label ?? "").trim() : "";
     const title = this._config.title || "Cleaning timetable";
     const startDate = this._config.start_date || localDateString();
@@ -314,11 +319,20 @@ class CleaningRotationCard extends HTMLElement {
                 const iconColor = safeColor(person.icon_color, "#111111");
                 const nameColor = safeColor(person.name_color, "#111111");
                 const countdownColor = safeColor(person.countdown_color, "#111111");
+                let dates = "";
+                if (dateFormat) {
+                  const start = today + (current ? endsIn - person.duration : startsIn);
+                  const end = start + person.duration - 1;
+                  const first = dateFormat.format(start * DAY_MS);
+                  const range = end === start ? first : first + " – " + dateFormat.format(end * DAY_MS);
+                  dates = `<span class="turn-dates">${escapeHtml(range)}</span>`;
+                }
                 return `<div class="rotation-row ${current ? "current" : ""}" style="--person-color:${color};--person-text:#111111;--person-icon:${iconColor};--person-name:${nameColor};--person-countdown:${countdownColor}">
                   <div class="person-icon"><ha-icon icon="${safeIcon(person.icon)}"></ha-icon></div>
                   <div class="person-copy">
                     <strong>${escapeHtml(person.name)}</strong>
                     <span>${current && activeLabel ? escapeHtml(activeLabel) + " · " : ""}${escapeHtml(current ? this._relativeEnd(endsIn) : this._relativeStart(startsIn))}</span>
+                    ${dates}
                   </div>
                   ${
                     this._config.show_duration
@@ -524,6 +538,7 @@ class CleaningRotationCardEditor extends HTMLElement {
           <div class="toggle-grid">
             ${this._toggle("show_cycle_summary", "Show cycle summary")}
             ${this._toggle("show_active_label", "Show active cleaning label")}
+            ${this._toggle("show_dates", "Show dates")}
             ${this._toggle("show_duration", "Show duration badges")}
           </div>
           <label class="field"><span>Active cleaning label</span><input data-config-field="active_label" value="${escapeHtml(this._config.active_label)}"></label>
