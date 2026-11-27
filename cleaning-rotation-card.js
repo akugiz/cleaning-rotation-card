@@ -1,11 +1,11 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.4.0
+ * Version 1.4.1
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.4.1";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
@@ -16,6 +16,7 @@ const DEFAULTS = Object.freeze({
   show_active_label: true,
   show_bedroom: false,
   bedroom_title: "Shared bedroom",
+  bedroom_icon: "mdi:bed-outline",
   bedroom_weeks: 1,
   bedroom_start: "",
   bedroom_first: "",
@@ -104,7 +105,8 @@ function bedroomWeekCount(value) {
 function bedroomSection(config, scheduleOnDay, now = new Date()) {
   if (!config.show_bedroom) return "";
   const title = escapeHtml(String(config.bedroom_title ?? "").trim() || DEFAULTS.bedroom_title);
-  const heading = `<h3><ha-icon icon="mdi:bed-outline" aria-hidden="true"></ha-icon>${title}</h3>`;
+  const icon = safeIcon(config.bedroom_icon, DEFAULTS.bedroom_icon);
+  const heading = `<h3><ha-icon icon="${icon}" aria-hidden="true"></ha-icon>${title}</h3>`;
   const members = config.people.filter(person => person.shares_bedroom && person.name.trim());
   if (!members.length) return `<section class="bedroom">${heading}<p>Select room members in the card editor.</p></section>`;
   const anchor = dayNumberFromString(config.bedroom_start);
@@ -115,13 +117,21 @@ function bedroomSection(config, scheduleOnDay, now = new Date()) {
   const nextSunday = Math.max(firstSunday, sundayOnOrAfter(today));
   const weeks = bedroomWeekCount(config.bedroom_weeks);
   const rows = [];
-  let substitute = Math.max(0, members.findIndex(member => member.id === config.bedroom_first));
+  const first = Math.max(0, members.findIndex(member => member.id === config.bedroom_first));
+  const queue = [...members.slice(first), ...members.slice(0, first)];
+  let previousId;
   for (let day = firstSunday; day < nextSunday + 7 * weeks; day += 7) {
     let person = scheduleOnDay(day).current?.person;
     if (!person?.shares_bedroom) {
-      person = members[substitute];
-      substitute = (substitute + 1) % members.length;
+      const nextMain = scheduleOnDay(day + 7).current?.person;
+      const nextId = nextMain?.shares_bedroom ? nextMain.id : undefined;
+      let index = queue.findIndex(member => member.id !== previousId && member.id !== nextId);
+      if (index < 0) index = queue.findIndex(member => member.id !== previousId);
+      // Only the assigned substitute goes to the back. Skipped members keep their turn.
+      [person] = queue.splice(Math.max(index, 0), 1);
+      queue.push(person);
     }
+    previousId = person.id;
     if (day < nextSunday) continue;
     const daysLeft = day - today;
     const countdown = daysLeft === 0 ? "Today" : daysLeft === 1 ? "Tomorrow" : `In ${daysLeft} days`;
@@ -525,6 +535,7 @@ class CleaningRotationCardEditor extends HTMLElement {
           <fieldset ${this._config.show_bedroom ? "" : "hidden"}>
             <legend>Bedroom rota settings</legend>
             <label class="field"><span>Section title</span><input data-config-field="bedroom_title" value="${escapeHtml(this._config.bedroom_title)}"></label>
+            <div class="field"><ha-selector data-bedroom-icon></ha-selector></div>
             <label class="field"><span>Upcoming Sundays to show</span><select data-config-field="bedroom_weeks">
               ${Array.from({ length: 12 }, (_, i) => i + 1).map(n => `<option value="${n}" ${n === bedroomWeekCount(this._config.bedroom_weeks) ? "selected" : ""}>${n}</option>`).join("")}
             </select></label>
@@ -535,7 +546,7 @@ class CleaningRotationCardEditor extends HTMLElement {
               <option value="">First selected person in timetable order</option>
               ${this._config.people.filter(person => person.shares_bedroom).map(person => `<option value="${escapeHtml(person.id)}" ${person.id === this._config.bedroom_first ? "selected" : ""}>${escapeHtml(person.name)}</option>`).join("")}
             </select></label>
-            <p class="hint">A selected person cleans the bedroom on their own main cleaning Sunday. On other Sundays, the selected people take turns as substitutes.</p>
+            <p class="hint">A selected person cleans the bedroom on their own main cleaning Sunday. Substitutes take turns, skipping the previous bedroom cleaner and the following Sunday’s main cleaner when possible.</p>
           </fieldset>
         </section>
         <section>
@@ -571,6 +582,18 @@ class CleaningRotationCardEditor extends HTMLElement {
         this._updatePerson(Number(field.dataset.personIndex), field.dataset.personField, checkbox ? field.checked : field.value);
         if (checkbox) this._render(true);
       });
+    });
+    const bedroomPicker = this.shadowRoot.querySelector("[data-bedroom-icon]");
+    bedroomPicker.hass = this._hass;
+    bedroomPicker.selector = { icon: { placeholder: DEFAULTS.bedroom_icon } };
+    bedroomPicker.value = safeIcon(this._config.bedroom_icon, DEFAULTS.bedroom_icon);
+    bedroomPicker.label = "Section icon";
+    bedroomPicker.addEventListener("value-changed", event => {
+      event.stopPropagation();
+      const value = event.detail?.value;
+      if (typeof value !== "string") return;
+      const icon = safeIcon(value, DEFAULTS.bedroom_icon);
+      if (icon !== this._config.bedroom_icon) this._updateConfigField("bedroom_icon", icon);
     });
     this.shadowRoot.querySelectorAll("[data-person-icon-selector]").forEach((picker) => {
       const index = Number(picker.dataset.personIconSelector);
