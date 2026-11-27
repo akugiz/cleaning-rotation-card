@@ -1,11 +1,11 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.4.2
+ * Version 1.4.3
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.4.2";
+const CARD_VERSION = "1.4.3";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
@@ -18,6 +18,7 @@ const DEFAULTS = Object.freeze({
   bedroom_title: "Shared bedroom",
   bedroom_icon: "mdi:bed-outline",
   bedroom_weeks: 1,
+  bedroom_show_weekday: true,
   bedroom_start: "",
   bedroom_first: "",
   show_cycle_summary: true,
@@ -137,7 +138,7 @@ function bedroomSection(config, scheduleOnDay, now = new Date()) {
     const daysLeft = day - today;
     const countdown = daysLeft === 0 ? "Today" : daysLeft === 1 ? "Tomorrow" : `In ${daysLeft} days`;
     const date = new Date(day * DAY_MS).toLocaleDateString(undefined, {
-      weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+      weekday: config.bedroom_show_weekday === false ? undefined : "short", month: "short", day: "numeric", timeZone: "UTC",
     });
     rows.push(`<li style="--member-color:${safeColor(person.color)}">
       <span class="room-person"><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(date)}</small></span>
@@ -551,6 +552,7 @@ class CleaningRotationCardEditor extends HTMLElement {
             <legend>Bedroom rota settings</legend>
             <label class="field"><span>Section title</span><input data-config-field="bedroom_title" value="${escapeHtml(this._config.bedroom_title)}"></label>
             <div class="field"><ha-selector data-bedroom-icon></ha-selector></div>
+            ${this._toggle("bedroom_show_weekday", "Show weekday names")}
             <label class="field"><span>Upcoming Sundays to show</span><select data-config-field="bedroom_weeks">
               ${Array.from({ length: 12 }, (_, i) => i + 1).map(n => `<option value="${n}" ${n === bedroomWeekCount(this._config.bedroom_weeks) ? "selected" : ""}>${n}</option>`).join("")}
             </select></label>
