@@ -1,11 +1,11 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.3.1
+ * Version 1.4.0
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.3.1";
+const CARD_VERSION = "1.4.0";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
@@ -15,6 +15,8 @@ const DEFAULTS = Object.freeze({
   active_label: "Cleaning now",
   show_active_label: true,
   show_bedroom: false,
+  bedroom_title: "Shared bedroom",
+  bedroom_weeks: 1,
   bedroom_start: "",
   bedroom_first: "",
   show_cycle_summary: true,
@@ -94,28 +96,44 @@ function dayNumberFromString(value) {
 }
 
 // Use local calendar day numbers so DST cannot shift a Sunday assignment.
-function bedroomRow(config, scheduleOnDay, now = new Date()) {
+function bedroomWeekCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(12, Math.max(1, Math.trunc(count))) : 1;
+}
+
+function bedroomSection(config, scheduleOnDay, now = new Date()) {
   if (!config.show_bedroom) return "";
+  const title = escapeHtml(String(config.bedroom_title ?? "").trim() || DEFAULTS.bedroom_title);
+  const heading = `<h3><ha-icon icon="mdi:bed-outline" aria-hidden="true"></ha-icon>${title}</h3>`;
   const members = config.people.filter(person => person.shares_bedroom && person.name.trim());
-  if (!members.length) return '<p class="bedroom">Shared bedroom · Select room members in the card editor.</p>';
+  if (!members.length) return `<section class="bedroom">${heading}<p>Select room members in the card editor.</p></section>`;
   const anchor = dayNumberFromString(config.bedroom_start);
-  if (anchor == null) return '<p class="bedroom">Shared bedroom · Choose the start date in the card editor.</p>';
+  if (anchor == null) return `<section class="bedroom">${heading}<p>Choose the start date in the card editor.</p></section>`;
   const sundayOnOrAfter = day => day + (7 - new Date(day * DAY_MS).getUTCDay()) % 7;
   const firstSunday = sundayOnOrAfter(anchor);
   const today = dayNumberFromDate(now);
-  const sunday = Math.max(firstSunday, sundayOnOrAfter(today));
-  let person = scheduleOnDay(sunday).current?.person;
-  if (!person?.shares_bedroom) {
-    let index = Math.max(0, members.findIndex(member => member.id === config.bedroom_first));
-    for (let day = firstSunday; day < sunday; day += 7) {
-      if (!scheduleOnDay(day).current?.person.shares_bedroom) index = (index + 1) % members.length;
+  const nextSunday = Math.max(firstSunday, sundayOnOrAfter(today));
+  const weeks = bedroomWeekCount(config.bedroom_weeks);
+  const rows = [];
+  let substitute = Math.max(0, members.findIndex(member => member.id === config.bedroom_first));
+  for (let day = firstSunday; day < nextSunday + 7 * weeks; day += 7) {
+    let person = scheduleOnDay(day).current?.person;
+    if (!person?.shares_bedroom) {
+      person = members[substitute];
+      substitute = (substitute + 1) % members.length;
     }
-    person = members[index];
+    if (day < nextSunday) continue;
+    const daysLeft = day - today;
+    const countdown = daysLeft === 0 ? "Today" : daysLeft === 1 ? "Tomorrow" : `In ${daysLeft} days`;
+    const date = new Date(day * DAY_MS).toLocaleDateString(undefined, {
+      weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+    });
+    rows.push(`<li style="--member-color:${safeColor(person.color)}">
+      <span class="room-person"><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(date)}</small></span>
+      <span class="room-countdown">${countdown}</span>
+    </li>`);
   }
-  const date = new Date(sunday * DAY_MS).toLocaleDateString(undefined, {
-    weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
-  });
-  return `<p class="bedroom"><strong>Shared bedroom</strong> · ${escapeHtml(date)} · ${escapeHtml(person.name)}</p>`;
+  return `<section class="bedroom">${heading}<ol>${rows.join("")}</ol></section>`;
 }
 
 class CleaningRotationCard extends HTMLElement {
@@ -306,7 +324,7 @@ class CleaningRotationCard extends HTMLElement {
                 : `<div class="empty"><ha-icon icon="mdi:account-plus-outline"></ha-icon><strong>Add people in the card editor</strong><span>No calendar is required.</span></div>`
             }
           </div>
-          ${bedroomRow(this._config, day => this._schedule(day))}
+          ${bedroomSection(this._config, day => this._schedule(day))}
         </div>
       </ha-card>
     `;
@@ -324,7 +342,16 @@ class CleaningRotationCard extends HTMLElement {
       .title-copy { min-width: 0; }
       h2 { margin: 0; color: var(--primary-text-color); font-size: 20px; line-height: 1.2; }
       .title-copy p { margin: 4px 0 0; color: var(--secondary-text-color); font-size: 11px; }
-      .bedroom { margin: 12px 0 0; color: var(--primary-text-color); font-size: 14px; }
+      .bedroom { margin-top: 16px; border-top: 1px solid var(--divider-color); padding-top: 12px; color: var(--primary-text-color); }
+      .bedroom h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; overflow-wrap: anywhere; }
+      .bedroom h3 ha-icon { color: var(--rotation-accent); --mdc-icon-size: 20px; }
+      .bedroom ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+      .bedroom li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; border-inline-start: 4px solid var(--member-color); border-radius: 8px; padding: 7px 10px; background: var(--secondary-background-color); }
+      .room-person { display: grid; flex: 1 1 7em; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+      .room-person small { color: var(--secondary-text-color); }
+      .room-countdown { font-size: 12px; font-weight: 600; }
+      .bedroom li:first-child .room-countdown { padding: 3px 8px; border-radius: 12px; background: color-mix(in srgb, var(--member-color) 18%, transparent); }
+      .bedroom p { font-size: 13px; color: var(--secondary-text-color); }
       .rotation-list { display: grid; gap: 8px; }
       .rotation-row { min-width: 0; min-height: 58px; display: flex; align-items: center; gap: 11px; padding: 9px 12px; border: 2px solid transparent; border-radius: 14px; color: var(--person-text); background: var(--person-color); box-shadow: 0 2px 10px #00000018; font-weight: 700; }
       .rotation-row.current { border-color: color-mix(in srgb, var(--person-text) 78%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--person-color) 35%, transparent), 0 5px 18px #00000028; }
@@ -393,7 +420,7 @@ class CleaningRotationCardEditor extends HTMLElement {
   }
 
   _updateConfigField(name, value) {
-    this._config = { ...this._config, [name]: value };
+    this._config = { ...this._config, [name]: name === "bedroom_weeks" ? bedroomWeekCount(value) : value };
     if (name === "show_bedroom" && value && !this._config.bedroom_start) this._config.bedroom_start = localDateString();
     this._emitConfig();
     this._render();
@@ -496,7 +523,12 @@ class CleaningRotationCardEditor extends HTMLElement {
           <h3>Shared bedroom</h3>
           ${this._toggle("show_bedroom", "Show Sunday bedroom rota")}
           <fieldset ${this._config.show_bedroom ? "" : "hidden"}>
-            <legend>People who share this bedroom</legend>
+            <legend>Bedroom rota settings</legend>
+            <label class="field"><span>Section title</span><input data-config-field="bedroom_title" value="${escapeHtml(this._config.bedroom_title)}"></label>
+            <label class="field"><span>Upcoming Sundays to show</span><select data-config-field="bedroom_weeks">
+              ${Array.from({ length: 12 }, (_, i) => i + 1).map(n => `<option value="${n}" ${n === bedroomWeekCount(this._config.bedroom_weeks) ? "selected" : ""}>${n}</option>`).join("")}
+            </select></label>
+            <p>People who share this bedroom</p>
             ${this._config.people.map((person, index) => `<label class="member"><input type="checkbox" data-person-index="${index}" data-person-field="shares_bedroom" ${person.shares_bedroom ? "checked" : ""}>${escapeHtml(person.name)}</label>`).join("")}
             <label class="field"><span>Start date (first Sunday on or after this date)</span><input type="date" data-config-field="bedroom_start" value="${escapeHtml(this._config.bedroom_start)}"></label>
             <label class="field"><span>First substitute bedroom cleaner</span><select data-config-field="bedroom_first">
