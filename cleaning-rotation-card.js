@@ -1,17 +1,22 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.2.1
+ * Version 1.3.0
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.2.1";
+const CARD_VERSION = "1.3.0";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
   title: "Cleaning timetable",
   start_date: "",
   people: [],
+  active_label: "Cleaning now",
+  show_active_label: true,
+  show_bedroom: false,
+  bedroom_start: "",
+  bedroom_first: "",
   show_cycle_summary: true,
   show_duration: true,
 });
@@ -56,6 +61,7 @@ function normalizePeople(people) {
     icon_color: safeColor(person?.icon_color, "#111111"),
     name_color: safeColor(person?.name_color, "#111111"),
     countdown_color: safeColor(person?.countdown_color, "#111111"),
+    shares_bedroom: person?.shares_bedroom === true,
     duration: durationDays(person?.duration),
   }));
 }
@@ -85,6 +91,26 @@ function dayNumberFromString(value) {
     parsed.getUTCDate() !== day
   ) return null;
   return Math.floor(stamp / DAY_MS);
+}
+
+// Use local calendar day numbers so DST cannot shift a Sunday assignment.
+function bedroomRow(config, now = new Date()) {
+  if (!config.show_bedroom) return "";
+  const members = config.people.filter(person => person.shares_bedroom && person.name.trim());
+  if (!members.length) return '<p class="bedroom">Shared bedroom · Select room members in the card editor.</p>';
+  const anchor = dayNumberFromString(config.bedroom_start);
+  if (anchor == null) return '<p class="bedroom">Shared bedroom · Choose the start date in the card editor.</p>';
+  const sundayOnOrAfter = day => day + (7 - new Date(day * DAY_MS).getUTCDay()) % 7;
+  const firstSunday = sundayOnOrAfter(anchor);
+  const today = dayNumberFromDate(now);
+  const sunday = Math.max(firstSunday, sundayOnOrAfter(today));
+  const weeks = (sunday - firstSunday) / 7;
+  const first = Math.max(0, members.findIndex(person => person.id === config.bedroom_first));
+  const person = members[(first + weeks) % members.length];
+  const date = new Date(sunday * DAY_MS).toLocaleDateString(undefined, {
+    weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+  });
+  return `<p class="bedroom"><strong>Shared bedroom</strong> · ${escapeHtml(date)} · ${escapeHtml(person.name)}</p>`;
 }
 
 class CleaningRotationCard extends HTMLElement {
@@ -230,6 +256,7 @@ class CleaningRotationCard extends HTMLElement {
     }
 
     const schedule = this._schedule();
+    const activeLabel = this._config.show_active_label ? String(this._config.active_label ?? "").trim() : "";
     const title = this._config.title || "Cleaning timetable";
     const startDate = this._config.start_date || localDateString();
 
@@ -259,7 +286,7 @@ class CleaningRotationCard extends HTMLElement {
                   <div class="person-icon"><ha-icon icon="${safeIcon(person.icon)}"></ha-icon></div>
                   <div class="person-copy">
                     <strong>${escapeHtml(person.name)}</strong>
-                    <span>${current ? "Cleaning now · " : ""}${escapeHtml(current ? this._relativeEnd(endsIn) : this._relativeStart(startsIn))}</span>
+                    <span>${current && activeLabel ? escapeHtml(activeLabel) + " · " : ""}${escapeHtml(current ? this._relativeEnd(endsIn) : this._relativeStart(startsIn))}</span>
                   </div>
                   ${
                     this._config.show_duration
@@ -275,6 +302,7 @@ class CleaningRotationCard extends HTMLElement {
                 : `<div class="empty"><ha-icon icon="mdi:account-plus-outline"></ha-icon><strong>Add people in the card editor</strong><span>No calendar is required.</span></div>`
             }
           </div>
+          ${bedroomRow(this._config)}
         </div>
       </ha-card>
     `;
@@ -292,6 +320,7 @@ class CleaningRotationCard extends HTMLElement {
       .title-copy { min-width: 0; }
       h2 { margin: 0; color: var(--primary-text-color); font-size: 20px; line-height: 1.2; }
       .title-copy p { margin: 4px 0 0; color: var(--secondary-text-color); font-size: 11px; }
+      .bedroom { margin: 12px 0 0; color: var(--primary-text-color); font-size: 14px; }
       .rotation-list { display: grid; gap: 8px; }
       .rotation-row { min-width: 0; min-height: 58px; display: flex; align-items: center; gap: 11px; padding: 9px 12px; border: 2px solid transparent; border-radius: 14px; color: var(--person-text); background: var(--person-color); box-shadow: 0 2px 10px #00000018; font-weight: 700; }
       .rotation-row.current { border-color: color-mix(in srgb, var(--person-text) 78%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--person-color) 35%, transparent), 0 5px 18px #00000028; }
@@ -361,6 +390,7 @@ class CleaningRotationCardEditor extends HTMLElement {
 
   _updateConfigField(name, value) {
     this._config = { ...this._config, [name]: value };
+    if (name === "show_bedroom" && value && !this._config.bedroom_start) this._config.bedroom_start = localDateString();
     this._emitConfig();
     this._render();
   }
@@ -452,9 +482,25 @@ class CleaningRotationCardEditor extends HTMLElement {
           <label class="field"><span>Rotation starts</span><input type="date" data-config-field="start_date" value="${escapeHtml(this._config.start_date || localDateString())}"></label>
           <div class="toggle-grid">
             ${this._toggle("show_cycle_summary", "Show cycle summary")}
+            ${this._toggle("show_active_label", "Show active cleaning label")}
             ${this._toggle("show_duration", "Show duration badges")}
           </div>
+          <label class="field"><span>Active cleaning label</span><input data-config-field="active_label" value="${escapeHtml(this._config.active_label)}"></label>
           <p class="hint">The first person starts on this date. After every person's duration, the rotation repeats automatically forever.</p>
+        </section>
+        <section>
+          <h3>Shared bedroom</h3>
+          ${this._toggle("show_bedroom", "Show Sunday bedroom rota")}
+          <fieldset ${this._config.show_bedroom ? "" : "hidden"}>
+            <legend>People who share this bedroom</legend>
+            ${this._config.people.map((person, index) => `<label class="member"><input type="checkbox" data-person-index="${index}" data-person-field="shares_bedroom" ${person.shares_bedroom ? "checked" : ""}>${escapeHtml(person.name)}</label>`).join("")}
+            <label class="field"><span>Start date (first Sunday on or after this date)</span><input type="date" data-config-field="bedroom_start" value="${escapeHtml(this._config.bedroom_start)}"></label>
+            <label class="field"><span>First bedroom cleaner</span><select data-config-field="bedroom_first">
+              <option value="">First selected person in timetable order</option>
+              ${this._config.people.filter(person => person.shares_bedroom).map(person => `<option value="${escapeHtml(person.id)}" ${person.id === this._config.bedroom_first ? "selected" : ""}>${escapeHtml(person.name)}</option>`).join("")}
+            </select></label>
+            <p class="hint">Each Sunday the bedroom passes to the next selected person in timetable order.</p>
+          </fieldset>
         </section>
         <section>
           <div class="people-heading"><h3>People</h3><span>${this._config.people.length}</span></div>
@@ -478,12 +524,17 @@ class CleaningRotationCardEditor extends HTMLElement {
       field.addEventListener("change", () => this._updateConfigField(field.dataset.configField, field.value));
     });
     this.shadowRoot.querySelectorAll("[data-boolean-field]").forEach((field) => {
-      field.addEventListener("change", () => this._updateConfigField(field.dataset.booleanField, field.checked));
+      field.addEventListener("change", () => {
+        this._updateConfigField(field.dataset.booleanField, field.checked);
+        if (field.dataset.booleanField === "show_bedroom") this._render(true);
+      });
     });
     this.shadowRoot.querySelectorAll("[data-person-field]").forEach((field) => {
-      field.addEventListener("change", () =>
-        this._updatePerson(Number(field.dataset.personIndex), field.dataset.personField, field.value),
-      );
+      field.addEventListener("change", () => {
+        const checkbox = field.type === "checkbox";
+        this._updatePerson(Number(field.dataset.personIndex), field.dataset.personField, checkbox ? field.checked : field.value);
+        if (checkbox) this._render(true);
+      });
     });
     this.shadowRoot.querySelectorAll("[data-person-icon-selector]").forEach((picker) => {
       const index = Number(picker.dataset.personIconSelector);
@@ -556,6 +607,10 @@ class CleaningRotationCardEditor extends HTMLElement {
       .field { min-width: 0; display: grid; gap: 5px; margin-top: 10px; color: var(--secondary-text-color); font-size: 11px; }
       input { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--divider-color); border-radius: 9px; color: var(--primary-text-color); background: var(--secondary-background-color); font: inherit; }
       ha-selector { display: block; width: 100%; min-width: 0; }
+      fieldset { min-width: 0; margin: 8px 0 0; border: 1px solid var(--divider-color); }
+      .member { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
+      .member input { width: auto; }
+      select { min-width: 0; font: inherit; }
       .hint { margin: 11px 0 0; color: var(--secondary-text-color); font-size: 10px; line-height: 1.4; }
       .toggle-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 14px; margin-top: 10px; }
       .toggle-row { min-height: 38px; display: flex; align-items: center; gap: 8px; }
