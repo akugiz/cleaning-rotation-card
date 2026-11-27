@@ -1,11 +1,11 @@
 /*
  * Cleaning Rotation Card for Home Assistant
- * Version 1.3.0
+ * Version 1.3.1
  *
  * A dependency-free repeating cleaning timetable stored entirely in the card configuration.
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.3.1";
 const DAY_MS = 86_400_000;
 
 const DEFAULTS = Object.freeze({
@@ -94,7 +94,7 @@ function dayNumberFromString(value) {
 }
 
 // Use local calendar day numbers so DST cannot shift a Sunday assignment.
-function bedroomRow(config, now = new Date()) {
+function bedroomRow(config, scheduleOnDay, now = new Date()) {
   if (!config.show_bedroom) return "";
   const members = config.people.filter(person => person.shares_bedroom && person.name.trim());
   if (!members.length) return '<p class="bedroom">Shared bedroom · Select room members in the card editor.</p>';
@@ -104,9 +104,14 @@ function bedroomRow(config, now = new Date()) {
   const firstSunday = sundayOnOrAfter(anchor);
   const today = dayNumberFromDate(now);
   const sunday = Math.max(firstSunday, sundayOnOrAfter(today));
-  const weeks = (sunday - firstSunday) / 7;
-  const first = Math.max(0, members.findIndex(person => person.id === config.bedroom_first));
-  const person = members[(first + weeks) % members.length];
+  let person = scheduleOnDay(sunday).current?.person;
+  if (!person?.shares_bedroom) {
+    let index = Math.max(0, members.findIndex(member => member.id === config.bedroom_first));
+    for (let day = firstSunday; day < sunday; day += 7) {
+      if (!scheduleOnDay(day).current?.person.shares_bedroom) index = (index + 1) % members.length;
+    }
+    person = members[index];
+  }
   const date = new Date(sunday * DAY_MS).toLocaleDateString(undefined, {
     weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
   });
@@ -177,12 +182,11 @@ class CleaningRotationCard extends HTMLElement {
     }, Math.max(1_000, next.getTime() - now.getTime()));
   }
 
-  _schedule(now = new Date()) {
+  _schedule(today = dayNumberFromDate(new Date())) {
     const people = normalizePeople(this._config?.people).filter((person) => person.name.trim());
     if (!people.length) return { entries: [], totalDays: 0, current: null };
 
-    const today = dayNumberFromDate(now);
-    const start = dayNumberFromString(this._config?.start_date) ?? today;
+    const start = dayNumberFromString(this._config?.start_date) ?? dayNumberFromDate(new Date());
     const totalDays = people.reduce((sum, person) => sum + person.duration, 0);
     const offsets = [];
     let offset = 0;
@@ -302,7 +306,7 @@ class CleaningRotationCard extends HTMLElement {
                 : `<div class="empty"><ha-icon icon="mdi:account-plus-outline"></ha-icon><strong>Add people in the card editor</strong><span>No calendar is required.</span></div>`
             }
           </div>
-          ${bedroomRow(this._config)}
+          ${bedroomRow(this._config, day => this._schedule(day))}
         </div>
       </ha-card>
     `;
@@ -495,11 +499,11 @@ class CleaningRotationCardEditor extends HTMLElement {
             <legend>People who share this bedroom</legend>
             ${this._config.people.map((person, index) => `<label class="member"><input type="checkbox" data-person-index="${index}" data-person-field="shares_bedroom" ${person.shares_bedroom ? "checked" : ""}>${escapeHtml(person.name)}</label>`).join("")}
             <label class="field"><span>Start date (first Sunday on or after this date)</span><input type="date" data-config-field="bedroom_start" value="${escapeHtml(this._config.bedroom_start)}"></label>
-            <label class="field"><span>First bedroom cleaner</span><select data-config-field="bedroom_first">
+            <label class="field"><span>First substitute bedroom cleaner</span><select data-config-field="bedroom_first">
               <option value="">First selected person in timetable order</option>
               ${this._config.people.filter(person => person.shares_bedroom).map(person => `<option value="${escapeHtml(person.id)}" ${person.id === this._config.bedroom_first ? "selected" : ""}>${escapeHtml(person.name)}</option>`).join("")}
             </select></label>
-            <p class="hint">Each Sunday the bedroom passes to the next selected person in timetable order.</p>
+            <p class="hint">A selected person cleans the bedroom on their own main cleaning Sunday. On other Sundays, the selected people take turns as substitutes.</p>
           </fieldset>
         </section>
         <section>
