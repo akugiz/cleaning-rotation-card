@@ -258,8 +258,8 @@ class CleaningRotationCard extends HTMLElement {
                 return `<div class="rotation-row ${current ? "current" : ""}" style="--person-color:${color};--person-text:#111111;--person-icon:${iconColor};--person-name:${nameColor};--person-countdown:${countdownColor}">
                   <div class="person-icon"><ha-icon icon="${safeIcon(person.icon)}"></ha-icon></div>
                   <div class="person-copy">
-                    <strong>${current ? "Cleaning now: " : ""}${escapeHtml(person.name)}</strong>
-                    <span>${escapeHtml(current ? this._relativeEnd(endsIn) : this._relativeStart(startsIn))}</span>
+                    <strong>${escapeHtml(person.name)}</strong>
+                    <span>${current ? "Cleaning now · " : ""}${escapeHtml(current ? this._relativeEnd(endsIn) : this._relativeStart(startsIn))}</span>
                   </div>
                   ${
                     this._config.show_duration
